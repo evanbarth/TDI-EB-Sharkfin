@@ -6,7 +6,15 @@ A TradingView indicator (Pine Script v6) built on Dean Malone's Traders Dynamic 
 - **Signal:** a `✹` marker when the price line crosses its signal line after leaving the band. It fires **once per excursion**.
 - **Alerts:** built-in alert conditions for both the warning and the signal, in each direction.
 
-![TDI-EB on a chart](docs/screenshot.png)
+![TDI-EB indicator pane](docs/tdi-pane.png)
+
+---
+
+## Example
+
+BTCUSD daily chart (Coinbase) with TDI-EB in the lower pane:
+
+![BTCUSD 1D with TDI-EB](docs/btcusd-1d.png)
 
 ---
 
