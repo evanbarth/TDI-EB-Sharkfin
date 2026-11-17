@@ -1,0 +1,95 @@
+// This script was created by Evan Barth. evanbarth.com
+// Dean Malone is the original creator of the TDI, of which this is modified. Thanks, Dean.
+//@version=6
+indicator("TDI-EB - Traders Dynamic Index", shorttitle = "TDI-EB")
+
+// ── Inputs ──────────────────────────────────────────────────────────────
+rsiPeriod  = input.int(21,       "RSI Period",                     minval = 1)
+bandLength = input.int(34,       "Band Length",                    minval = 2)
+bandMult   = input.float(1.6185, "Band Multiplier",                minval = 0.1, step = 0.1)
+priceLen   = input.int(2,        "Price Line (fast MA of RSI)",    minval = 1)
+signalLen  = input.int(7,        "Signal Line (slow MA of RSI)",   minval = 1)
+
+grpSig         = "Sharkfin signals"
+maxBars        = input.int(10, "Max bars after leaving band", minval = 1, group = grpSig,
+     tooltip = "The cross must happen within this many bars of the last bar the price line was outside the band.")
+requireReentry = input.bool(false, "Require price line back inside band", group = grpSig,
+     tooltip = "Off: fire on the price/signal cross, even if the price line is still outside the band.\nOn: fire on the first bar the price line is back inside the band AND on the other side of the signal line (a completed fin).")
+confirmedOnly  = input.bool(true, "Signal only on closed bars (no flicker)", group = grpSig)
+
+// ── Core TDI ────────────────────────────────────────────────────────────
+r          = ta.rsi(close, rsiPeriod)
+mid        = ta.sma(r, bandLength)                  // band basis (same thing as (up + dn) / 2)
+offs       = bandMult * ta.stdev(r, bandLength)
+up         = mid + offs
+dn         = mid - offs
+priceLine  = ta.sma(r, priceLen)                    // 2-period: the fast, "RSI" line (black)
+signalLine = ta.sma(r, signalLen)                   // 7-period: the slow signal line (light blue)
+
+// ── Raw conditions ──────────────────────────────────────────────────────
+outTop  = priceLine > up
+outBot  = priceLine < dn
+crossUp = ta.crossover(priceLine, signalLine)
+crossDn = ta.crossunder(priceLine, signalLine)
+
+// ── Sharkfin state machine: one signal per excursion ────────────────────
+var bool topArmed   = false
+var bool botArmed   = false
+var int  topLastOut = na
+var int  botLastOut = na
+
+// Arm only when a NEW excursion starts, so a fin that already fired can't fire again
+if outTop and not outTop[1]
+    topArmed := true
+if outBot and not outBot[1]
+    botArmed := true
+
+// Track the most recent bar outside the band (window is measured from here)
+if outTop
+    topLastOut := bar_index
+if outBot
+    botLastOut := bar_index
+
+// Expire if no trigger within the window
+if topArmed and bar_index - topLastOut > maxBars
+    topArmed := false
+if botArmed and bar_index - botLastOut > maxBars
+    botArmed := false
+
+bearTrigger = requireReentry ? (priceLine < signalLine and not outTop) : crossDn
+bullTrigger = requireReentry ? (priceLine > signalLine and not outBot) : crossUp
+barOK       = not confirmedOnly or barstate.isconfirmed
+
+sellFin = topArmed and bearTrigger and barOK
+buyFin  = botArmed and bullTrigger and barOK
+
+if sellFin
+    topArmed := false
+if buyFin
+    botArmed := false
+
+// ── Plots ───────────────────────────────────────────────────────────────
+hline(70, "Overbought", color = color.new(#131722, 28), linestyle = hline.style_dotted, linewidth = 2)
+hline(30, "Oversold",   color = color.new(#131722, 18), linestyle = hline.style_dotted, linewidth = 2)
+hline(50, "Mid Line",   color = color.new(#131722, 28), linestyle = hline.style_dotted, linewidth = 2)
+
+plot(up,  "Upper Band",      color = color.new(#311b92, 49), linewidth = 2)
+plot(dn,  "Lower Band",      color = color.new(#311b92, 49), linewidth = 2)
+plot(mid, "Middle of Bands", color = color.new(#4aff85, 28), linewidth = 2)
+
+plot(priceLine,  "Price Line (RSI)", color = color.new(#000000, 28), linewidth = 2)
+plot(signalLine, "Signal Line",      color = color.new(#a4c2f4, 28), linewidth = 2)
+
+// Warning: small marker on every bar the price line is outside the band
+plotchar(outTop, title = "Above upper band", char = "∘", location = location.top,    color = color.new(#ff5252, 28), size = size.tiny)
+plotchar(outBot, title = "Below lower band", char = "∘", location = location.bottom, color = color.new(#00bcd4, 28), size = size.tiny)
+
+// Signal: larger marker, once per fin
+plotchar(sellFin, title = "Sharkfin sell", char = "✹", location = location.top,    color = color.new(#ff4500, 0), size = size.tiny)
+plotchar(buyFin,  title = "Sharkfin buy",  char = "✹", location = location.bottom, color = color.new(#00ffff, 0), size = size.tiny)
+
+// ── Alerts (set frequency to "Once Per Bar Close") ──────────────────────
+alertcondition(outTop and not outTop[1], "TDI warning: above upper band", "TDI-EB {{ticker}} {{interval}}: price line broke above the upper band. Possible bearish sharkfin forming.")
+alertcondition(outBot and not outBot[1], "TDI warning: below lower band", "TDI-EB {{ticker}} {{interval}}: price line broke below the lower band. Possible bullish sharkfin forming.")
+alertcondition(sellFin, "TDI sharkfin SELL", "TDI-EB {{ticker}} {{interval}}: bearish sharkfin, price line crossed under the signal line.")
+alertcondition(buyFin,  "TDI sharkfin BUY",  "TDI-EB {{ticker}} {{interval}}: bullish sharkfin, price line crossed over the signal line.")
